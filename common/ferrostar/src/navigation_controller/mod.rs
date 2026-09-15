@@ -288,10 +288,16 @@ impl Navigator for NavigationController {
                     WaypointAdvanceResult::Changed(new_waypoints) => new_waypoints,
                 };
 
+                // Route deviation must be evaluated against the location from this update,
+                // rather than the previous trip state's location.
+                let mut deviation_trip_state = state.trip_state();
+                if let TripState::Navigating { user_location, .. } = &mut deviation_trip_state {
+                    *user_location = location;
+                }
                 let deviation = self
                     .config
                     .route_deviation_tracking
-                    .check_route_deviation(&self.route, &state.trip_state());
+                    .check_route_deviation(&self.route, &deviation_trip_state);
 
                 let is_arriving = remaining_steps.len() <= 2;
                 let intermediate_trip_state = self.create_intermediate_trip_state(
@@ -800,18 +806,11 @@ mod tests {
         // Offset by ~0.5° (~55 km) so the location is unambiguously far from every step
         // in the route, regardless of where the route winds. The deviation check scans all
         // remaining steps and returns NoDeviation if the user is close to any of them.
-        //
-        // Note: `update_user_location` computes deviation against the *previous* trip
-        // state's user_location (mod.rs:289), so the deviation flag lags one tick. The
-        // first off-route update therefore still reports NoDeviation; the second flips it
-        // to `Deviation { kind: CompletelyOffRoute }` (the user is 55km from every step),
-        // and that is when instruction suppression activates.
         let off_route_loc = make_user_location(
             coord!(x: start_coord.lng + 0.5, y: start_coord.lat + 0.5),
             5.0,
         );
-        let off_state_lagged = controller.update_user_location(off_route_loc.clone(), initial);
-        let off_state = controller.update_user_location(off_route_loc, off_state_lagged);
+        let off_state = controller.update_user_location(off_route_loc, initial);
         match off_state.trip_state() {
             TripState::Navigating {
                 deviation,
@@ -821,7 +820,7 @@ mod tests {
             } => {
                 assert!(
                     deviation.is_completely_off_route(),
-                    "expected CompletelyOffRoute on second off-route tick, got {deviation:?}"
+                    "expected CompletelyOffRoute on first off-route tick, got {deviation:?}"
                 );
                 assert!(
                     visual_instruction.is_none(),
@@ -835,11 +834,8 @@ mod tests {
             other => panic!("expected Navigating, got {other:?}"),
         };
 
-        // 3. Update back to the on-route location. The first return tick still carries
-        // the lagged CompletelyOffRoute flag (deviation is computed from the previous
-        // user_location, which was off-route), so update twice to clear the lag.
-        let recovered_lagged = controller.update_user_location(on_route_loc.clone(), off_state);
-        let recovered = controller.update_user_location(on_route_loc, recovered_lagged);
+        // 3. Update back to the on-route location. Deviation should clear immediately.
+        let recovered = controller.update_user_location(on_route_loc, off_state);
         match recovered.trip_state() {
             TripState::Navigating {
                 deviation,
