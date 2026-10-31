@@ -26,6 +26,26 @@ so be sure to look at that to build intuition.
 You can pass a style URL to any of the navigation map view constructors.
 You can vary this dynamically as your app theme changes (ex: in dark mode).
 
+### Native map ornaments
+
+Native map ornaments remain hidden by default.
+To opt into attribution, a logo, or a compass,
+use `navigationMapViewControls` with the MapLibre SwiftUI DSL's existing controls:
+
+```swift
+.navigationMapViewControls {
+    AttributionButton().position(.bottomRight).margins(CGPoint(x: 12, y: 96))
+    LogoView().position(.bottomLeft).margins(CGPoint(x: 12, y: 96))
+}
+```
+
+Import `MapLibreSwiftDSL` for the control types.
+The example leaves room for a host's bottom panel;
+measure your own panel and account for safe areas in each orientation.
+Passing an empty builder hides the ornaments again.
+This modifier changes neither Ferrostar's navigation buttons nor its camera behavior.
+It works with the standalone map and the standard navigation views.
+
 ### Camera
 
 The camera supports two-way manipulation via SwiftUI bindings.

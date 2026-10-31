@@ -14,6 +14,7 @@ import SwiftUI
 /// ``DynamicallyOrientingNavigationView``.
 public struct NavigationMapView: View {
     @Environment(\.mapContentInset) private var hostMapContentInset
+    @Environment(\.navigationMapViewControls) private var mapControls
     @Environment(\.navigationMapViewRouteOverlayConfiguration) private var routeConfig
     @Environment(\.navigationMapViewContentInsetConfiguration) private var contentInsetConfig
 
@@ -82,9 +83,7 @@ public struct NavigationMapView: View {
                 userLayers
             }
             .mapContentInset(calculatedMapViewInsets(for: geometry).uiEdgeInsets)
-            .mapControls {
-                // No controls
-            }
+            .mapControls { mapControls }
             .onMapUserTrackingModeChanged(onUserTrackingModeChanged)
             .onMapStyleLoaded(onStyleLoaded)
             .ignoresSafeArea(.all)
