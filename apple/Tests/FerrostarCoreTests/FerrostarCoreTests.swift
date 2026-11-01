@@ -571,9 +571,11 @@ final class FerrostarCoreTests: XCTestCase {
             waypoints: [],
             steps: []
         )
+        let sessionID = core.navigationSessionID
         XCTAssertThrowsError(try core.startNavigation(route: emptyRoute)) { error in
             XCTAssertEqual(error as? FerrostarCoreError, .emptyRouteGeometry)
         }
+        XCTAssertEqual(core.navigationSessionID, sessionID)
         XCTAssertNil(core.state, "A rejected route must not leave a partially started session behind")
     }
 
@@ -610,6 +612,26 @@ final class FerrostarCoreTests: XCTestCase {
         }
         XCTAssertEqual(core.route, mockRoute)
         XCTAssertEqual(core.state, state, "Reject the route before replacing the active session")
+    }
+
+    @MainActor
+    func testNavigationIdentityChangesForSameRouteRestartAndStop() throws {
+        let core = FerrostarCore(routeAdapter: mockGETRouteAdapter, locationProvider: SimulatedLocationProvider(),
+                                 navigationControllerConfig: manualAdvanceConfig, networkSession: MockURLSession())
+        defer { core.stopNavigation() }
+        let initialID = core.navigationSessionID
+        try core.startNavigation(route: mockRoute)
+        let firstSessionID = core.navigationSessionID
+        XCTAssertNotEqual(initialID, firstSessionID)
+
+        try core.startNavigation(route: mockRoute)
+        let secondSessionID = core.navigationSessionID
+        XCTAssertEqual(core.route, mockRoute)
+        XCTAssertNotEqual(firstSessionID, secondSessionID)
+
+        core.stopNavigation()
+        XCTAssertNotEqual(secondSessionID, core.navigationSessionID)
+        XCTAssertNil(core.state)
     }
 
     /// Asserts that `actual` is within ~0.1mm of `expected`.
