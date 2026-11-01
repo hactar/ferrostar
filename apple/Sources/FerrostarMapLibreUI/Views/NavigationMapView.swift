@@ -14,6 +14,7 @@ import SwiftUI
 /// ``DynamicallyOrientingNavigationView``.
 public struct NavigationMapView: View {
     @Environment(\.mapContentInset) private var hostMapContentInset
+    @Environment(\.onMapStyleLoaded) private var hostStyleLoaded
     @Environment(\.navigationMapViewRouteOverlayConfiguration) private var routeConfig
     @Environment(\.navigationMapViewContentInsetConfiguration) private var contentInsetConfig
 
@@ -86,7 +87,12 @@ public struct NavigationMapView: View {
                 // No controls
             }
             .onMapUserTrackingModeChanged(onUserTrackingModeChanged)
-            .onMapStyleLoaded(onStyleLoaded)
+            .onMapStyleLoaded { style in
+                // Preserve the internal camera lifecycle while allowing a host
+                // to configure its own style through the standard DSL modifier.
+                onStyleLoaded(style)
+                hostStyleLoaded?(style)
+            }
             .ignoresSafeArea(.all)
         }
     }
