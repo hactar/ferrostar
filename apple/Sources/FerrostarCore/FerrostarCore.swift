@@ -104,10 +104,13 @@ public protocol FerrostarCoreDelegate: AnyObject {
 
     private let sessionBuilder: FerrostarSessionBuilder
     private var navigationSession: NavigationSession?
-    /// State updates are delivered asynchronously on the main queue.
-    /// This token prevents an update or reroute result from an earlier session
-    /// from reviving navigation after that session has stopped.
-    private var navigationSessionID = UUID()
+    /// Identity used to invalidate asynchronous work when navigation changes.
+    ///
+    /// Starting (including the same route), restoring, or stopping navigation
+    /// replaces this value. Capture it before awaiting a host operation and
+    /// compare afterward before applying a result. It does not indicate whether
+    /// navigation is active; use ``state`` for that.
+    public private(set) var navigationSessionID = UUID()
 
     private var routeRequestInFlight = false
     private var lastAutomaticRecalculation: Date?
