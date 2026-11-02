@@ -23,6 +23,16 @@ This requires that the user both enter _and_ exit an area near the transition po
 If all you need is a simple "checkpoint" style that determines if the user is "close enough"
 the distance to end of step, and distance from step geometry modes are a good candidate.
 
+The route-snapped entry and exit condition,
+`step_advance_distance_entry_and_snapped_exit`,
+checks the exit against a position snapped to the current step and future route geometry.
+For a short remaining path,
+it caps the required deviation using the attainable deviation of that geometry from the current step.
+A turn's reported travel distance can be larger than that deviation,
+so using path length alone can require movement beyond the route's endpoint.
+The configured exit distance still applies when the remaining path is long enough.
+Entry and horizontal accuracy checks continue to apply.
+
 If you need more flexiblitity,
 you can compose multiple conditions together to make more complex decision rules,
 or even write your own logic entirely using the `StepAdvanceCondition` trait.
