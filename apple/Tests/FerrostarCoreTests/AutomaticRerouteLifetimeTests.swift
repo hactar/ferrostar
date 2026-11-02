@@ -17,13 +17,14 @@ final class AutomaticRerouteLifetimeTests: XCTestCase {
                     completionFlags.append(state.isCalculatingNewRoute)
                 }
             }
+            defer { completion.cancel() }
             fixture.core.advanceToNextStep()
             try await waitUntil { fixture.core.state?.isNavigating == false }
             XCTAssertEqual(completionFlags, [false], "Publish completion once with recalculation already cleared")
-            completion.cancel()
             XCTAssertEqual(fixture.core.state?.isCalculatingNewRoute, false)
             try await assertLateResultIsIgnored(fixture, result: .success([fixture.alternative]))
             assertComplete(fixture.core)
+            XCTAssertEqual(completionFlags, [false], "Late provider cleanup must not publish arrival again")
         }
     }
 

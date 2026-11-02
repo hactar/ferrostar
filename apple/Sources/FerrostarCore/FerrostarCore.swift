@@ -528,7 +528,9 @@ public protocol FerrostarCoreDelegate: AnyObject {
                             }
 
                             await MainActor.run {
-                                guard sessionID == self.navigationSessionID else {
+                                guard sessionID == self.navigationSessionID,
+                                      self.state?.isNavigating == true
+                                else {
                                     return
                                 }
 
