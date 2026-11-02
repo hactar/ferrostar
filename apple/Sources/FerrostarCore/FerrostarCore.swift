@@ -451,7 +451,12 @@ public protocol FerrostarCoreDelegate: AnyObject {
 
             let wasNavigating = self.state?.isNavigating == true
             self.coreNavState = state
-            self.state?.tripState = state.tripState
+            var navigationState = self.state
+            navigationState?.tripState = state.tripState
+            if case .complete = state.tripState {
+                navigationState?.isCalculatingNewRoute = false
+            }
+            self.state = navigationState
 
             switch state.tripState {
             case .idle(userLocation: _):
@@ -573,7 +578,6 @@ public protocol FerrostarCoreDelegate: AnyObject {
             case .complete(userLocation: _, summary: _):
                 self.recalculationTask?.cancel()
                 self.recalculationTask = nil
-                self.state?.isCalculatingNewRoute = false
                 if wasNavigating {
                     self.spokenInstructionObserver.stopAndClearQueue()
                 }
