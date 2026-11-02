@@ -355,6 +355,9 @@ public protocol FerrostarCoreDelegate: AnyObject {
         let navigationSession = sessionBuilder.build(for: route, with: config?.ffiValue)
         navigationSessionID = UUID()
         self.navigationSession = navigationSession
+        // Only a successfully prepared replacement may invalidate current speech.
+        queuedUtteranceIDs.removeAll()
+        spokenInstructionObserver.stopAndClearQueue()
 
         locationProvider.startUpdating()
 
@@ -390,6 +393,9 @@ public protocol FerrostarCoreDelegate: AnyObject {
 
         navigationSessionID = UUID()
         self.navigationSession = navigationSession
+        // Only a successfully prepared replacement may invalidate current speech.
+        queuedUtteranceIDs.removeAll()
+        spokenInstructionObserver.stopAndClearQueue()
 
         locationProvider.startUpdating()
 
@@ -443,6 +449,7 @@ public protocol FerrostarCoreDelegate: AnyObject {
                 return
             }
 
+            let wasNavigating = self.state?.isNavigating == true
             self.coreNavState = state
             self.state?.tripState = state.tripState
 
@@ -539,12 +546,10 @@ public protocol FerrostarCoreDelegate: AnyObject {
                     // Otherwise we'll ignore it.
                     spokenInstructionToAlert = spokenInstruction
 
-                    // This should not happen on the main queue as it can block;
-                    // we'll probably remove the need for this eventually
-                    // by making FerrostarCore its own actor
-                    DispatchQueue.global(qos: .default).async {
-                        self.spokenInstructionObserver.spokenInstructionTriggered(spokenInstruction)
-                    }
+                    // The observer queues audio-focus/synthesis work itself.
+                    // Another dispatch here could deliver an old session's
+                    // instruction after Stop had already invalidated its queue.
+                    self.spokenInstructionObserver.spokenInstructionTriggered(spokenInstruction)
                 }
 
                 // Update the dynamic island if it's being used.
@@ -556,6 +561,9 @@ public protocol FerrostarCoreDelegate: AnyObject {
                     )
                 }
             case .complete(userLocation: _, summary: _):
+                if wasNavigating {
+                    self.spokenInstructionObserver.stopAndClearQueue()
+                }
                 // End the widget session if the route is completed, regardless of whether stop is called.
                 // This avoids a dangling LiveActivity the user must close.
                 self.widgetProvider?.terminate()

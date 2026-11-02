@@ -8,7 +8,15 @@ public class SpokenInstructionObserver {
     @Published public private(set) var isMuted: Bool
 
     let synthesizer: SpeechSynthesizer
-    private let audioManager = AudioSessionManager()
+    private let audioManager: any AudioSessionManaging
+    // Synthesizers can call back synchronously into the observer. Serialize that
+    // reentrancy without holding a lock across suspension points. Synthesizer
+    // operations themselves run on the main actor; audio focus stays on its actor.
+    private let speechLock = NSRecursiveLock()
+    private var generation = UUID()
+    private var pendingInstructions: [UUID: Task<Void, Never>] = [:]
+    private var lastInstructionTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
     private var audioFocusReleaseTask: Task<Void, Never>?
 
     /// Whether this observer should manage the app's shared `AVAudioSession` while speaking.
@@ -51,24 +59,71 @@ public class SpokenInstructionObserver {
         self.synthesizer = synthesizer
         self.isMuted = isMuted
         self.managesAudioSession = managesAudioSession
+        audioManager = AudioSessionManager()
+    }
+
+    /// Keep audio-session timing controllable in library tests without adding a
+    /// second public customization surface next to managesAudioSession.
+    init(synthesizer: SpeechSynthesizer, isMuted: Bool, managesAudioSession: Bool,
+         audioManager: any AudioSessionManaging)
+    {
+        self.synthesizer = synthesizer
+        self.isMuted = isMuted
+        self.managesAudioSession = managesAudioSession
+        self.audioManager = audioManager
     }
 
     deinit {
+        for task in pendingInstructions.values {
+            task.cancel()
+        }
         audioFocusReleaseTask?.cancel()
-        // NOTE: The audioFocusReleaseTask will deinit itself
     }
 
     public func spokenInstructionTriggered(_ instruction: FerrostarCoreFFI.SpokenInstruction) {
-        guard !isMuted else {
-            return
-        }
-
-        Task {
+        speechLock.withLock {
+            guard !isMuted else { return }
             cancelAudioFocusRelease()
-            if managesAudioSession {
-                await audioManager.requestAudioFocus()
+            let expectedGeneration = generation
+            let id = UUID()
+            let previousStop = stopTask
+            let previousInstruction = lastInstructionTask
+            let task = Task<Void, Never> { [weak self, audioManager, managesAudioSession] in
+                defer { self?.removePendingInstruction(id: id) }
+                // A prior stop must finish unducking before new speech can
+                // acquire focus; delayed cleanup must not affect a new session.
+                await previousStop?.value
+                await previousInstruction?.value
+                guard !Task.isCancelled, self?.prepareToSpeak(generation: expectedGeneration) == true else { return }
+                if managesAudioSession {
+                    await audioManager.requestAudioFocus()
+                }
+                guard !Task.isCancelled else { return }
+                await MainActor.run { [weak self] in
+                    self?.speak(instruction, generation: expectedGeneration)
+                }
             }
+            pendingInstructions[id] = task
+            lastInstructionTask = task
+        }
+    }
 
+    private func prepareToSpeak(generation expectedGeneration: UUID) -> Bool {
+        speechLock.withLock {
+            guard generation == expectedGeneration, !isMuted else { return false }
+            cancelAudioFocusRelease()
+            return true
+        }
+    }
+
+    private func removePendingInstruction(id: UUID) {
+        speechLock.withLock { _ = pendingInstructions.removeValue(forKey: id) }
+    }
+
+    @MainActor
+    private func speak(_ instruction: FerrostarCoreFFI.SpokenInstruction, generation expectedGeneration: UUID) {
+        speechLock.withLock {
+            guard !Task.isCancelled, generation == expectedGeneration, !isMuted else { return }
             let utterance: AVSpeechUtterance = if #available(iOS 16.0, *),
                                                   let ssml = instruction.ssml,
                                                   let ssmlUtterance = AVSpeechUtterance(ssmlRepresentation: ssml)
@@ -77,9 +132,9 @@ public class SpokenInstructionObserver {
             } else {
                 AVSpeechUtterance(string: instruction.text)
             }
-
-            self.synthesizer.speak(utterance)
-            if managesAudioSession {
+            synthesizer.speak(utterance)
+            // A custom synth may synchronously call Stop/Mute from speak.
+            if managesAudioSession, generation == expectedGeneration, !isMuted {
                 scheduleAudioFocusRelease()
             }
         }
@@ -87,41 +142,65 @@ public class SpokenInstructionObserver {
 
     /// Toggle the mute.
     public func toggleMute() {
-        let isCurrentlyMuted = isMuted
-        isMuted = !isCurrentlyMuted
-
-        // This used to have `synthesizer.isSpeaking`, but I think we want to run it regardless.
-        if isMuted {
-            stopAndClearQueue()
+        speechLock.withLock {
+            isMuted.toggle()
+            if isMuted {
+                stopAndClearQueue()
+            }
         }
     }
 
+    /// Immediately invalidates every instruction queued before this command,
+    /// including one waiting for audio focus. Current synthesis is stopped on
+    /// the main actor, before instructions from a newer session may speak.
     public func stopAndClearQueue() {
-        Task {
-            synthesizer.stopSpeaking(at: .immediate)
-            if managesAudioSession {
-                await audioManager.releaseAudioFocus()
+        speechLock.withLock {
+            generation = UUID()
+            for task in pendingInstructions.values {
+                task.cancel()
+            }
+            pendingInstructions.removeAll()
+            lastInstructionTask = nil
+            cancelAudioFocusRelease()
+            let previousStop = stopTask
+            stopTask = Task { [audioManager, synthesizer, managesAudioSession] in
+                await previousStop?.value
+                await MainActor.run { _ = synthesizer.stopSpeaking(at: .immediate) }
+                if managesAudioSession {
+                    await audioManager.releaseAudioFocus()
+                }
             }
         }
     }
 
     func scheduleAudioFocusRelease() {
-        cancelAudioFocusRelease()
-
-        audioFocusReleaseTask = Task { [weak self] in
-            // Wait at least 500ms; then keep waiting until either:
-            //   - The task is cancelled
-            //   - The synthesizer is no longer speaking
-            repeat {
-                try? await Task.sleep(nanoseconds: 500 * NSEC_PER_MSEC)
-            } while !Task.isCancelled && self?.synthesizer.isSpeaking ?? false
-
-            guard !Task.isCancelled else {
-                return
+        speechLock.withLock {
+            cancelAudioFocusRelease()
+            let expectedGeneration = generation
+            audioFocusReleaseTask = Task { [weak self, audioManager] in
+                // Keep the existing polling policy. Synthesizer delegate/queue
+                // completion belongs to the separate audio-session proposal.
+                while !Task.isCancelled {
+                    do { try await Task.sleep(nanoseconds: 500 * NSEC_PER_MSEC) } catch { return }
+                    let speaking = await MainActor.run { [weak self] in
+                        self?.isSpeaking(generation: expectedGeneration)
+                    }
+                    guard let speaking else { return }
+                    if !speaking {
+                        break
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                await audioManager.releaseAudioFocus()
             }
+        }
+    }
 
-            // Release audio focus (unduck other sources) once we're done speaking
-            await self?.audioManager.releaseAudioFocus()
+    @MainActor
+    private func isSpeaking(generation expectedGeneration: UUID) -> Bool? {
+        speechLock.withLock {
+            guard !Task.isCancelled, generation == expectedGeneration, !isMuted else { return nil }
+            return synthesizer.isSpeaking
         }
     }
 

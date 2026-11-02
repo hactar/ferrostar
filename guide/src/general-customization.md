@@ -103,6 +103,36 @@ Refer to the demo apps examples of custom implementations.
 Note that you can disable the default behavior of attempting to reroute
 by setting an empty implementation (*not* setting the property to `nil`/ `null`!).
 
+## Apple speech synthesis
+
+Inject a `SpokenInstructionObserver` when creating `FerrostarCore`
+to supply a custom `SpeechSynthesizer` or manage your own audio session.
+Synthesizer operations run on the main actor;
+a custom implementation should enqueue playback and return promptly.
+The observer keeps instruction trigger order while acquiring audio focus asynchronously.
+
+```swift
+let speech = SpokenInstructionObserver(
+    synthesizer: applicationSynthesizer,
+    isMuted: false,
+    managesAudioSession: false // The application owns audio focus.
+)
+// Pass `speech` as `spokenInstructionObserver` when constructing the core.
+```
+
+Mute and `stopAndClearQueue()` invalidate pending instructions immediately,
+including instructions still awaiting audio focus.
+Native stop and audio-focus cleanup run asynchronously;
+new instructions wait for that cleanup before speaking.
+Starting or restoring a new route cancels speech belonging to the previous route
+only after the new session is prepared successfully.
+Arrival also cancels pending speech.
+Unmuting does not replay discarded instructions.
+
+This lifetime behavior is independent of routing provider and travel mode.
+The existing audio-completion polling policy remains in place;
+it does not add a synthesis delegate requirement to custom implementations.
+
 ## Customizing prompt timings
 
 While most APIs don’t offer customizable timing for banners and spoken prompts,
