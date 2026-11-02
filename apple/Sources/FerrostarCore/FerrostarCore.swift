@@ -504,21 +504,31 @@ public protocol FerrostarCoreDelegate: AnyObject {
                                     initialLocation: location,
                                     waypoints: waypoints
                                 )
-                                guard !Task.isCancelled,
-                                      sessionID == self.navigationSessionID
-                                else {
-                                    return
+                                // State updates use the main queue. An arrival
+                                // already queued when the provider returns must
+                                // be applied before considering its route result.
+                                await withCheckedContinuation { continuation in
+                                    DispatchQueue.main.async { continuation.resume() }
                                 }
+                                try await MainActor.run {
+                                    guard !Task.isCancelled,
+                                          sessionID == self.navigationSessionID,
+                                          self.state?.isNavigating == true
+                                    else {
+                                        return
+                                    }
 
-                                // Accepting a reroute replaces the session and skips the cleanup below.
-                                self.lastAutomaticRecalculation = Date()
+                                    // Accepting a reroute replaces the session and skips the cleanup below.
+                                    self.lastAutomaticRecalculation = Date()
 
-                                if let delegate = self.delegate {
-                                    delegate.core(self, loadedAlternateRoutes: routes)
-                                } else if let route = routes.first {
-                                    // Default behavior when no delegate is assigned:
-                                    // accept the first route, as this is what most users want when they go off route.
-                                    try self.startNavigation(route: route)
+                                    if let delegate = self.delegate {
+                                        delegate.core(self, loadedAlternateRoutes: routes)
+                                    } else if let route = routes.first {
+                                        // Default behavior when no delegate is assigned:
+                                        // accept the first route, as this is what most users want when they go off
+                                        // route.
+                                        try self.startNavigation(route: route)
+                                    }
                                 }
                             } catch {
                                 // Do nothing; this exists to enable us to run what amounts to an "async defer"
@@ -561,6 +571,9 @@ public protocol FerrostarCoreDelegate: AnyObject {
                     )
                 }
             case .complete(userLocation: _, summary: _):
+                self.recalculationTask?.cancel()
+                self.recalculationTask = nil
+                self.state?.isCalculatingNewRoute = false
                 if wasNavigating {
                     self.spokenInstructionObserver.stopAndClearQueue()
                 }
