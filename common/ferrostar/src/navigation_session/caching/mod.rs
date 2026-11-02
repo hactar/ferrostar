@@ -284,6 +284,28 @@ mod tests {
         assert!(snapshot.trip_state.is_some());
     }
 
+    #[test]
+    fn cache_load_preserves_route_values_across_restart() {
+        let store = Arc::new(InMemoryCache::default());
+        let expected = gen_route_from_steps(vec![gen_dummy_route_step(
+            -0.139546,
+            51.510773,
+            -0.155,
+            51.519999999999996,
+        )]);
+        let cache = session_cache(&store);
+        cache.on_route_available(expected.clone());
+        cache.on_get_initial_state(NavState::idle(None));
+
+        let restarted = session_cache(&store);
+        let snapshot = restarted.load().expect("a fresh snapshot loads");
+        assert_eq!(
+            serde_json::to_value(snapshot.route).unwrap(),
+            serde_json::to_value(expected).unwrap(),
+            "Restoring a route must preserve its values"
+        );
+    }
+
     /// The app deletes the snapshot through its own `NavigationCache` reference.
     /// The in-memory record must not keep the deleted snapshot resumable.
     #[test]
@@ -357,6 +379,30 @@ mod tests {
     }
 
     proptest! {
+        /// Persisted route coordinates and measurements keep their exact values.
+        #[test]
+        fn cache_preserves_route_values(
+            longitude in -179.0_f64..179.0,
+            latitude in -85.0_f64..85.0,
+        ) {
+            let store = Arc::new(InMemoryCache::default());
+            let expected = gen_route_from_steps(vec![gen_dummy_route_step(
+                longitude,
+                latitude,
+                longitude + 0.001,
+                latitude + 0.001,
+            )]);
+            let cache = session_cache(&store);
+            cache.on_route_available(expected.clone());
+            cache.on_get_initial_state(NavState::idle(None));
+
+            let snapshot = session_cache(&store).load().expect("a fresh snapshot loads");
+            prop_assert_eq!(
+                serde_json::to_value(snapshot.route).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+        }
+
         /// `can_resume` is true exactly when `load` returns a snapshot with a trip state.
         #[test]
         fn can_resume_agrees_with_load(
