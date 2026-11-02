@@ -561,10 +561,24 @@ impl DistanceEntryAndSnappedExitCondition {
                 deviation_from_line(&Point::from(snapped_to_route), &current_step_linestring)
                     .unwrap_or(0.0);
 
-            // Use the minimum of configured exit distance and accumulated distance
-            // to handle cases where there aren't enough future steps
-            let effective_exit_distance =
-                (self.distance_after_end_of_step as f64).min(accumulated_distance);
+            let configured_exit_distance = f64::from(self.distance_after_end_of_step);
+            let mut effective_exit_distance = configured_exit_distance.min(accumulated_distance);
+            if accumulated_distance < configured_exit_distance {
+                // A short path's reported travel distance can exceed its attainable
+                // deviation from the current step, particularly after rounding or a turn.
+                // Cap using the actual future geometry so exiting does not require
+                // leaving that path. Longer lookaheads retain the configured threshold.
+                let reachable_deviation = combined_linestring
+                    .coords()
+                    .skip(current_step.geometry.len())
+                    .filter_map(|coordinate| {
+                        deviation_from_line(&Point::from(*coordinate), &current_step_linestring)
+                    })
+                    .fold(0.0_f64, f64::max);
+                if reachable_deviation > 0.0 {
+                    effective_exit_distance = effective_exit_distance.min(reachable_deviation);
+                }
+            }
 
             deviation >= effective_exit_distance
         } else {
@@ -1329,6 +1343,107 @@ mod tests {
         assert!(
             result2.should_advance,
             "Should advance when route-snapped position has moved onto next step"
+        );
+    }
+
+    #[test]
+    fn test_route_snapped_short_tail_uses_reachable_exit_distance() {
+        let approach = gen_route_step_with_coords(vec![
+            coord!(x: -0.140896, y: 51.509741),
+            coord!(x: -0.140942, y: 51.509787),
+            coord!(x: -0.141255, y: 51.510097),
+            coord!(x: -0.141954, y: 51.510807),
+        ]);
+        let bend = coord!(x: -0.141954, y: 51.510807);
+        let destination = coord!(x: -0.141941, y: 51.510811);
+        let mut arrival = gen_route_step_with_coords(vec![destination, destination]);
+        arrival.distance = 0.0;
+
+        // Provider distances can be rounded and measure travel along the path,
+        // while the exit test measures deviation from the preceding step.
+        for reported_distance in [1.0, 1.1] {
+            for exit_distance in [2, 5, 10] {
+                let mut turn = gen_route_step_with_coords(vec![bend, destination]);
+                turn.distance = reported_distance;
+                let mut via = gen_route_step_with_coords(vec![bend, bend]);
+                via.distance = 0.0;
+                for steps in [
+                    vec![approach.clone(), turn.clone(), arrival.clone()],
+                    vec![approach.clone(), via, turn, arrival.clone()],
+                ] {
+                    let condition = DistanceEntryAndSnappedExitCondition {
+                        distance_to_end_of_step: 30,
+                        distance_after_end_of_step: exit_distance,
+                        minimum_horizontal_accuracy: 32,
+                        has_reached_end_of_current_step: false,
+                    };
+                    let state_at = |coordinate| {
+                        get_navigating_trip_state(
+                            make_user_location(coordinate, 5.0),
+                            steps.clone(),
+                            vec![],
+                            RouteDeviation::NoDeviation,
+                        )
+                    };
+                    let entered = condition.should_advance_step(state_at(bend));
+                    assert!(!entered.should_advance);
+                    assert!(
+                        !entered
+                            .next_iteration
+                            .should_advance_step(state_at(bend))
+                            .should_advance,
+                        "Remaining stationary at the turn must not advance the step"
+                    );
+                    assert!(
+                        entered
+                            .next_iteration
+                            .should_advance_step(state_at(destination))
+                            .should_advance,
+                        "The short final turn must not require leaving the route: reported={reported_distance}, exit={exit_distance}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_route_snapped_long_tail_preserves_configured_exit_distance() {
+        let bend = coord!(x: 0.001, y: 0.0);
+        let destination = coord!(x: 0.001, y: 0.001);
+        let steps = vec![
+            STRAIGHT_LINE_SHORT_ROUTE_STEP.clone(),
+            gen_route_step_with_coords(vec![bend, destination]),
+            gen_route_step_with_coords(vec![destination, destination]),
+        ];
+        let state_at = |coordinate| {
+            get_navigating_trip_state(
+                make_user_location(coordinate, 5.0),
+                steps.clone(),
+                vec![],
+                RouteDeviation::NoDeviation,
+            )
+        };
+        let condition = DistanceEntryAndSnappedExitCondition {
+            distance_to_end_of_step: 30,
+            distance_after_end_of_step: 5,
+            minimum_horizontal_accuracy: 32,
+            has_reached_end_of_current_step: false,
+        };
+        let entered = condition.should_advance_step(state_at(bend));
+        assert!(!entered.should_advance);
+        assert!(
+            !entered
+                .next_iteration
+                .should_advance_step(state_at(coord!(x: 0.001, y: 0.00001)))
+                .should_advance,
+            "One metre onto a longer next step must not satisfy a five-metre exit"
+        );
+        assert!(
+            entered
+                .next_iteration
+                .should_advance_step(state_at(coord!(x: 0.001, y: 0.0001)))
+                .should_advance,
+            "Completing the configured exit on the route must still advance"
         );
     }
 
