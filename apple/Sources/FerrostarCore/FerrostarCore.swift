@@ -439,7 +439,12 @@ public protocol FerrostarCoreDelegate: AnyObject {
             }
 
             self.coreNavState = state
-            self.state?.tripState = state.tripState
+            var navigationState = self.state
+            navigationState?.tripState = state.tripState
+            if case .complete = state.tripState {
+                navigationState?.isCalculatingNewRoute = false
+            }
+            self.state = navigationState
 
             switch state.tripState {
             case .idle(userLocation: _):
@@ -563,7 +568,6 @@ public protocol FerrostarCoreDelegate: AnyObject {
             case .complete(userLocation: _, summary: _):
                 self.recalculationTask?.cancel()
                 self.recalculationTask = nil
-                self.state?.isCalculatingNewRoute = false
                 // End the widget session if the route is completed, regardless of whether stop is called.
                 // This avoids a dangling LiveActivity the user must close.
                 self.widgetProvider?.terminate()

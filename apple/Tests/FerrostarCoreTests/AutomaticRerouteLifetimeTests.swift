@@ -11,8 +11,16 @@ final class AutomaticRerouteLifetimeTests: XCTestCase {
             let fixture = Fixture(usesDelegate: usesDelegate)
             defer { fixture.stop() }
             try await startRequest(fixture)
+            var completionFlags: [Bool] = []
+            let completion = fixture.core.$state.sink { state in
+                if let state, case .complete = state.tripState {
+                    completionFlags.append(state.isCalculatingNewRoute)
+                }
+            }
             fixture.core.advanceToNextStep()
             try await waitUntil { fixture.core.state?.isNavigating == false }
+            XCTAssertEqual(completionFlags, [false], "Publish completion once with recalculation already cleared")
+            completion.cancel()
             XCTAssertEqual(fixture.core.state?.isCalculatingNewRoute, false)
             try await assertLateResultIsIgnored(fixture, result: .success([fixture.alternative]))
             assertComplete(fixture.core)
