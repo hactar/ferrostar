@@ -3,37 +3,16 @@
 
 import PackageDescription
 
-let binaryTarget: Target
-let maplibreSwiftUIDSLPackage: Package.Dependency
-let useLocalFramework = true
-let useLocalMapLibreSwiftUIDSL = true
-
-if useLocalFramework {
-    binaryTarget = .binaryTarget(
-        name: "ferrostarFFI",
-        // IMPORTANT: Swift packages importing this locally will not be able to
-        // import Ferrostar core unless you specify this as a relative path!
-        path: "./common/target/ios/libferrostar-rs.xcframework"
-    )
-} else {
-    let releaseTag = "0.59.0"
-    let releaseChecksum = "1d1433cb7da0cd6b1da91415f796076e68634ae70f0b8de58714a2f18d0d225d"
-    binaryTarget = .binaryTarget(
-        name: "ferrostarFFI",
-        url:
-        "https://github.com/stadiamaps/ferrostar/releases/download/\(releaseTag)/libferrostar-rs.xcframework.zip",
-        checksum: releaseChecksum
-    )
-}
-
-if useLocalMapLibreSwiftUIDSL {
-    maplibreSwiftUIDSLPackage = .package(path: "../swiftui-dsl")
-} else {
-    maplibreSwiftUIDSLPackage = .package(
-        url: "https://github.com/maplibre/swiftui-dsl",
-        from: "0.26.1"
-    )
-}
+// Integration-only artifact built from this branch's Rust sources.
+// Keep this packaging separate from the focused upstream contributions.
+let binaryTarget = Target.binaryTarget(
+    name: "ferrostarFFI",
+    path: "Binaries/libferrostar-rs.xcframework.zip"
+)
+let maplibreSwiftUIDSLPackage = Package.Dependency.package(
+    url: "https://github.com/hactar/swiftui-dsl.git",
+    branch: "pr/bikemap-integration"
+)
 
 let package = Package(
     name: "FerrostarCore",

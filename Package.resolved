@@ -37,6 +37,15 @@
       }
     },
     {
+      "identity" : "swiftui-dsl",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hactar/swiftui-dsl.git",
+      "state" : {
+        "branch" : "pr/bikemap-integration",
+        "revision" : "84d201bc9c1fa9f34feeb81f59941694a0b70d37"
+      }
+    },
+    {
       "identity" : "xctest-dynamic-overlay",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
