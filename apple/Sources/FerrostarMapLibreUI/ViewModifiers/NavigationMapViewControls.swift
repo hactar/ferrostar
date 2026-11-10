@@ -16,6 +16,7 @@ public extension EnvironmentValues {
     }
 }
 
+@MainActor
 public extension View {
     /// Configures native map ornaments using the MapLibre SwiftUI DSL's controls.
     ///
@@ -25,7 +26,6 @@ public extension View {
     /// This does not change Ferrostar's navigation buttons or camera behavior.
     ///
     /// - Parameter controls: The native ornaments to display.
-    @MainActor
     func navigationMapViewControls(@MapControlsBuilder _ controls: () -> [MapControl]) -> some View {
         environment(\.navigationMapViewControls, controls())
     }
