@@ -3,8 +3,8 @@
 
 import PackageDescription
 
-// Integration-only artifact built from this branch's Rust sources.
-// Keep this packaging separate from the focused upstream contributions.
+/// Integration-only artifact built from this branch's Rust sources.
+/// Keep this packaging separate from the focused upstream contributions.
 let binaryTarget = Target.binaryTarget(
     name: "ferrostarFFI",
     path: "Binaries/libferrostar-rs.xcframework.zip"
