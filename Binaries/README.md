@@ -18,6 +18,11 @@ The rebuild left the committed generated Swift bindings unchanged.
 The selected sources include the short-tail step-exit and JSON round-trip fixes.
 Using the upstream 0.59.0 artifact would omit those fixes.
 
+The 10 November 2026 refresh merges canonical upstream
+`6a03904eda084cc2a74840ee0b94d1003bb5f9e0`.
+Neither the combined `common` source tree nor `apple/Sources/UniFFI` changed,
+so this archive still matches the selected Rust sources and Swift bindings.
+
 When Rust sources or bindings change, rebuild and replace the archive together.
 From the repository root after the standard build:
 
