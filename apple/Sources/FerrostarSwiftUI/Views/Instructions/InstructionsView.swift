@@ -79,19 +79,21 @@ public struct InstructionsView: View {
         guard !nextVisualInstructions.isEmpty else {
             return nil
         }
-        return AnyView(ForEach(Array(nextVisualInstructions.enumerated()), id: \.0) { enumerated in
-            let (visualInstruction, step): (VisualInstruction, RouteStep) = enumerated.1
-            Divider().padding(.leading, 16)
-            DefaultIconographyManeuverInstructionView(
-                text: visualInstruction.primaryContent.text,
-                maneuverType: visualInstruction.primaryContent.maneuverType,
-                maneuverModifier: visualInstruction.primaryContent.maneuverModifier,
-                distanceFormatter: distanceFormatter,
-                distanceToNextManeuver: step.distance,
-                theme: primaryRowTheme
-            )
-            .font(.title2.bold())
-            .padding(.horizontal, 16)
+        return AnyView(VStack {
+            ForEach(Array(nextVisualInstructions.enumerated()), id: \.0) { enumerated in
+                let (visualInstruction, step): (VisualInstruction, RouteStep) = enumerated.1
+                Divider().padding(.leading, 16)
+                DefaultIconographyManeuverInstructionView(
+                    text: visualInstruction.primaryContent.text,
+                    maneuverType: visualInstruction.primaryContent.maneuverType,
+                    maneuverModifier: visualInstruction.primaryContent.maneuverModifier,
+                    distanceFormatter: distanceFormatter,
+                    distanceToNextManeuver: step.distance,
+                    theme: primaryRowTheme
+                )
+                .font(.title2.bold())
+                .padding(.horizontal, 16)
+            }
         })
     }
 
