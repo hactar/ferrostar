@@ -453,6 +453,7 @@ impl StepAdvanceConditionSerializable for DistanceEntryAndExitCondition {
 /// or wander around the optimal path. The route-snapped exit check prevents premature advancement while still
 /// allowing natural pedestrian movement patterns.
 /// The exit distance is measured from the current step to the route-snapped position.
+/// If the next step retraces the approach, reaching the turn substitutes for a lateral exit.
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct DistanceEntryAndSnappedExitCondition {
@@ -505,7 +506,8 @@ impl StepAdvanceCondition for DistanceEntryAndSnappedExitCondition {
             self.check_entry_result(&trip_state)
         };
 
-        result.unwrap_or(StepAdvanceResult::continue_with_state(self.new_instance()))
+        // A fix that has not cleared the turn must keep waiting for the exit.
+        result.unwrap_or_else(|| StepAdvanceResult::continue_with_state(Arc::new(*self)))
     }
 
     fn new_instance(&self) -> Arc<dyn StepAdvanceCondition> {
@@ -563,7 +565,12 @@ impl DistanceEntryAndSnappedExitCondition {
 
             let configured_exit_distance = f64::from(self.distance_after_end_of_step);
             let mut effective_exit_distance = configured_exit_distance.min(accumulated_distance);
-            if accumulated_distance < configured_exit_distance {
+            let at_step_end = is_within_threshold_to_end_of_linestring(
+                &user_location.into(),
+                &current_step_linestring,
+                configured_exit_distance,
+            );
+            if accumulated_distance < configured_exit_distance || at_step_end {
                 // A short path's reported travel distance can exceed its attainable
                 // deviation from the current step, particularly after rounding or a turn.
                 // Cap using the actual future geometry so exiting does not require
@@ -575,7 +582,13 @@ impl DistanceEntryAndSnappedExitCondition {
                         deviation_from_line(&Point::from(*coordinate), &current_step_linestring)
                     })
                     .fold(0.0_f64, f64::max);
-                if reachable_deviation > 0.0 {
+                // A returning leg can retrace the approach exactly. In that case a
+                // lateral exit is impossible, so use proximity to the turn itself.
+                // Allow for centimetre-scale coordinate rounding when checking overlap.
+                if at_step_end && accumulated_distance > 0.0 && reachable_deviation <= 0.01 {
+                    return Some(StepAdvanceResult::advance_to_new_instance(self));
+                }
+                if accumulated_distance < configured_exit_distance && reachable_deviation > 0.0 {
                     effective_exit_distance = effective_exit_distance.min(reachable_deviation);
                 }
             }
@@ -1404,6 +1417,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_route_snapped_exit_when_next_step_retraces_approach() {
+        let bend = coord!(x: 0.001, y: 0.0);
+        let destination = coord!(x: 0.00075, y: 0.0);
+        let steps = vec![
+            STRAIGHT_LINE_SHORT_ROUTE_STEP.clone(),
+            gen_route_step_with_coords(vec![bend, destination]),
+            gen_route_step_with_coords(vec![destination, destination]),
+        ];
+        let condition = DistanceEntryAndSnappedExitCondition {
+            distance_to_end_of_step: 30,
+            distance_after_end_of_step: 5,
+            minimum_horizontal_accuracy: 32,
+            has_reached_end_of_current_step: false,
+        };
+        let state_at = |coordinate| {
+            get_navigating_trip_state(
+                make_user_location(coordinate, 5.0),
+                steps.clone(),
+                vec![],
+                RouteDeviation::NoDeviation,
+            )
+        };
+        let entered = condition.should_advance_step(state_at(destination));
+        assert!(!entered.should_advance);
+        let approaching = entered
+            .next_iteration
+            .should_advance_step(state_at(coord!(x: 0.0009, y: 0.0)));
+        assert!(
+            !approaching.should_advance,
+            "Passing the destination on the outbound leg must not complete the U-turn"
+        );
+        assert!(
+            approaching
+                .next_iteration
+                .should_advance_step(state_at(bend))
+                .should_advance,
+            "At the U-turn there is no lateral exit to detect on the retraced line"
+        );
     }
 
     #[test]
