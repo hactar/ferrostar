@@ -7,6 +7,7 @@ import SwiftUI
 public struct NavigatingInnerGridView: View {
     @Environment(\.navigationFormatterCollection) var formatterCollection: any FormatterCollection
     @Environment(\.navigationInnerGridConfiguration) private var gridConfig
+    @Environment(\.navigationZoomButtonsVisible) private var zoomButtonsVisible
 
     var speedLimit: Measurement<UnitSpeed>?
     var speedLimitStyle: SpeedLimitView.SignageStyle?
@@ -84,7 +85,7 @@ public struct NavigatingInnerGridView: View {
                 Spacer()
             },
             midTrailing: {
-                if showZoom {
+                if showZoom, zoomButtonsVisible {
                     NavigationUIZoomButton(onZoomIn: onZoomIn, onZoomOut: onZoomOut)
                 } else {
                     Spacer()
@@ -120,4 +121,15 @@ public struct NavigatingInnerGridView: View {
             .frame(height: 72)
     }
     .background(Color.green)
+}
+
+#Preview("Zoom buttons hidden") {
+    NavigatingInnerGridView(
+        isMuted: false,
+        onMute: {},
+        showZoom: true,
+        cameraControlState: .showRouteOverview {}
+    )
+    .navigationZoomButtonsVisible(false)
+    .padding()
 }
