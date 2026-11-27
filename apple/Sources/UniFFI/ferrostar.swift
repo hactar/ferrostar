@@ -890,7 +890,6 @@ public func FfiConverterTypeDistanceEntryAndExitCondition_lower(_ value: Distanc
  * or wander around the optimal path. The route-snapped exit check prevents premature advancement while still
  * allowing natural pedestrian movement patterns.
  * The exit distance is measured from the current step to the route-snapped position.
- * If the next step retraces the approach, reaching the turn substitutes for a lateral exit.
  */
 public protocol DistanceEntryAndSnappedExitConditionProtocol: AnyObject, Sendable {
     
@@ -903,7 +902,6 @@ public protocol DistanceEntryAndSnappedExitConditionProtocol: AnyObject, Sendabl
  * or wander around the optimal path. The route-snapped exit check prevents premature advancement while still
  * allowing natural pedestrian movement patterns.
  * The exit distance is measured from the current step to the route-snapped position.
- * If the next step retraces the approach, reaching the turn substitutes for a lateral exit.
  */
 open class DistanceEntryAndSnappedExitCondition: DistanceEntryAndSnappedExitConditionProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
